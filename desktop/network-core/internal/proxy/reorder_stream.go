@@ -72,6 +72,20 @@ func (b *ReorderStreamBuffer) InsertChunk(offset uint64, flags uint16, data []by
 		dataLen = len(data)
 	}
 
+	// 2.5. Check if this out-of-order chunk was already buffered to prevent memory leakage on duplicate chunks
+	if offset > b.contiguousOffset {
+		if existing, exists := b.chunks[offset]; exists {
+			if len(existing) >= dataLen {
+				return nil, false, true, nil
+			}
+			// Smaller chunk existed; release its memory before admitting the larger chunk
+			oldLen := int64(len(existing))
+			b.allocatedBytes -= oldLen
+			b.coord.Release(oldLen)
+			delete(b.chunks, offset)
+		}
+	}
+
 	// 3. Admission Control & Memory Quota Checks
 	if int64(dataLen) > 0 {
 		if b.allocatedBytes+int64(dataLen) > MaxMemoryPerFlow {

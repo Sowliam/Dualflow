@@ -111,6 +111,12 @@ func (w *WintunDLL) init() {
 }
 
 func findWintunDLL() (string, error) {
+	if envPath := os.Getenv("DUALFLOW_WINTUN_DLL"); envPath != "" {
+		if fi, err := os.Stat(envPath); err == nil && !fi.IsDir() {
+			return filepath.Abs(envPath)
+		}
+	}
+
 	// Candidate search paths
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
@@ -118,9 +124,19 @@ func findWintunDLL() (string, error) {
 	candidates := []string{
 		filepath.Join(exeDir, "wintun.dll"),
 		filepath.Join(exeDir, "..", "bin", "wintun.dll"),
+		filepath.Join(exeDir, "..", "network-core", "wintun.dll"),
 		"wintun.dll",
-		`C:\Users\SOWLI\Desktop\Dualflow\desktop\bin\wintun.dll`,
-		`C:\Users\SOWLI\Desktop\Dualflow\desktop\network-core\wintun.dll`,
+		filepath.Join(".", "wintun.dll"),
+		filepath.Join("..", "wintun.dll"),
+		filepath.Join("..", "..", "wintun.dll"),
+		filepath.Join(".", "bin", "wintun.dll"),
+		filepath.Join("..", "bin", "wintun.dll"),
+		filepath.Join("..", "..", "bin", "wintun.dll"),
+		filepath.Join(".", "desktop", "bin", "wintun.dll"),
+		filepath.Join(".", "desktop", "network-core", "wintun.dll"),
+		filepath.Join("..", "desktop", "bin", "wintun.dll"),
+		filepath.Join("..", "desktop", "network-core", "wintun.dll"),
+		filepath.Join("..", "..", "desktop", "network-core", "wintun.dll"),
 		`C:\Windows\System32\wintun.dll`,
 	}
 
@@ -130,6 +146,26 @@ func findWintunDLL() (string, error) {
 			if fi, statErr := os.Stat(abs); statErr == nil && !fi.IsDir() {
 				return abs, nil
 			}
+		}
+	}
+
+	// Dynamic walk-up search from working directory
+	if cwd, err := os.Getwd(); err == nil {
+		dir := cwd
+		for i := 0; i < 5; i++ {
+			target := filepath.Join(dir, "wintun.dll")
+			if fi, statErr := os.Stat(target); statErr == nil && !fi.IsDir() {
+				return filepath.Abs(target)
+			}
+			targetBin := filepath.Join(dir, "bin", "wintun.dll")
+			if fi, statErr := os.Stat(targetBin); statErr == nil && !fi.IsDir() {
+				return filepath.Abs(targetBin)
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
 		}
 	}
 

@@ -38,6 +38,7 @@ type ClientProxyListener struct {
 	flowTable    *FlowTable
 	tunnelSender TunnelSender
 	flowOpenWait map[uint32]chan uint8 // flowID -> ack channel (status)
+	clientConns  map[uint32]net.Conn   // flowID -> active client socket
 	isRunning    bool
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -54,6 +55,7 @@ func NewClientProxyListener(listenAddr, fixedTarget string, sender TunnelSender)
 		flowTable:    NewFlowTable(),
 		tunnelSender: sender,
 		flowOpenWait: make(map[uint32]chan uint8),
+		clientConns:  make(map[uint32]net.Conn),
 	}
 }
 
@@ -109,6 +111,16 @@ func (p *ClientProxyListener) GetFlowTable() *FlowTable {
 	return p.flowTable
 }
 
+// Addr returns the bound TCP address string of the proxy listener
+func (p *ClientProxyListener) Addr() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.listener != nil {
+		return p.listener.Addr().String()
+	}
+	return ""
+}
+
 func (p *ClientProxyListener) acceptLoop() {
 	for {
 		conn, err := p.listener.Accept()
@@ -146,7 +158,11 @@ func (p *ClientProxyListener) handleConnection(conn net.Conn) {
 			diagnostics.Error("Invalid fixed target format '%s': %v", fixed, err)
 			return
 		}
-		pNum, _ := strconv.Atoi(portStr)
+		pNum, err := strconv.Atoi(portStr)
+		if err != nil || pNum <= 0 || pNum > 65535 {
+			diagnostics.Error("Invalid fixed target port '%s': %v", portStr, err)
+			return
+		}
 		targetPort = uint16(pNum)
 		targetAddr = host
 		addrType = transport.AddrTypeDomain
@@ -180,15 +196,17 @@ func (p *ClientProxyListener) handleConnection(conn net.Conn) {
 	}
 	defer p.flowTable.Remove(flow.ID)
 
-	// 2. Prepare FlowOpen Waiter
+	// 2. Prepare FlowOpen Waiter and register socket
 	ackChan := make(chan uint8, 1)
 	p.mu.Lock()
 	p.flowOpenWait[flow.ID] = ackChan
+	p.clientConns[flow.ID] = conn
 	p.mu.Unlock()
 
 	defer func() {
 		p.mu.Lock()
 		delete(p.flowOpenWait, flow.ID)
+		delete(p.clientConns, flow.ID)
 		p.mu.Unlock()
 	}()
 
@@ -373,7 +391,7 @@ func (p *ClientProxyListener) HandleFlowOpenAck(flowID uint32, status uint8) {
 }
 
 // HandleInboundStreamData processes data chunks arriving from the tunnel intended for a local flow
-func (p *ClientProxyListener) HandleInboundStreamData(flowID uint32, offset uint64, flags uint16, data []byte, conn net.Conn) error {
+func (p *ClientProxyListener) HandleInboundStreamData(flowID uint32, offset uint64, flags uint16, data []byte) error {
 	flow, exists := p.flowTable.Get(flowID)
 	if !exists {
 		return errors.New("stream chunk for unknown flow")
@@ -383,6 +401,10 @@ func (p *ClientProxyListener) HandleInboundStreamData(flowID uint32, offset uint
 	if err != nil {
 		return err
 	}
+
+	p.mu.RLock()
+	conn := p.clientConns[flowID]
+	p.mu.RUnlock()
 
 	// Write assembled contiguous bytes to the local client socket
 	if len(readyBytes) > 0 && conn != nil {
@@ -395,8 +417,10 @@ func (p *ClientProxyListener) HandleInboundStreamData(flowID uint32, offset uint
 	// Handle TCP half-close on receiving remote FIN
 	if deliversFIN {
 		flow.MarkRemoteFinDelivered()
-		if tcpConn, ok := conn.(*net.TCPConn); ok {
-			_ = tcpConn.CloseWrite()
+		if conn != nil {
+			if tcpConn, ok := conn.(*net.TCPConn); ok {
+				_ = tcpConn.CloseWrite()
+			}
 		}
 	}
 

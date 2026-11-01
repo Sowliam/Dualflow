@@ -565,7 +565,184 @@ func TestPhase7StatisticalFormulaVerificationOnly_Synthetic(t *testing.T) {
 	t.Log("[SUCCESS] Statistical calculation algorithm validated mathematically (Synthetic Mock Vectors)")
 }
 
-// 8. Physical Network Throughput Benchmark Execution Harness (Physical Network Mode)
+// 8. Regression Test: Duplicate Out-Of-Order Chunk Memory Leak Prevention
+func TestPhase7DuplicateOutOfOrderMemoryLeakRegression(t *testing.T) {
+	buf := proxy.NewReorderStreamBuffer(999)
+	defer buf.Close()
+
+	initialAlloc := buf.AllocatedBytes()
+
+	// 1. Insert out-of-order chunk at offset 1000, 500 bytes
+	data1 := make([]byte, 500)
+	for i := range data1 {
+		data1[i] = byte(i % 256)
+	}
+
+	ready, deliversFIN, isDup, err := buf.InsertChunk(1000, 0, data1)
+	if err != nil {
+		t.Fatalf("InsertChunk failed: %v", err)
+	}
+	if len(ready) != 0 || deliversFIN || isDup {
+		t.Fatalf("Unexpected state after first insert: ready=%d, deliversFIN=%v, isDup=%v", len(ready), deliversFIN, isDup)
+	}
+	if buf.AllocatedBytes() != 500 {
+		t.Fatalf("Expected 500 allocated bytes, got %d", buf.AllocatedBytes())
+	}
+
+	// 2. Insert exact same chunk again (simulating multipath packet duplicate)
+	_, _, isDup, err = buf.InsertChunk(1000, 0, data1)
+	if err != nil {
+		t.Fatalf("Second InsertChunk failed: %v", err)
+	}
+	if !isDup {
+		t.Fatalf("Expected isDup=true for identical out-of-order chunk")
+	}
+	// Memory MUST NOT have doubled to 1000!
+	if buf.AllocatedBytes() != 500 {
+		t.Fatalf("Memory leak detected! Expected 500 allocated bytes, got %d", buf.AllocatedBytes())
+	}
+
+	// 3. Deliver preceding contiguous data 0..1000
+	data0 := make([]byte, 1000)
+	ready, _, _, err = buf.InsertChunk(0, 0, data0)
+	if err != nil {
+		t.Fatalf("Third InsertChunk failed: %v", err)
+	}
+
+	// Ready bytes must be 1000 + 500 = 1500 bytes
+	if len(ready) != 1500 {
+		t.Fatalf("Expected 1500 contiguous bytes delivered, got %d", len(ready))
+	}
+
+	// All out-of-order data drained; allocated bytes must return to 0
+	if buf.AllocatedBytes() != initialAlloc {
+		t.Fatalf("Expected memory to return to %d, got %d", initialAlloc, buf.AllocatedBytes())
+	}
+
+	t.Log("[SUCCESS] Out-of-order duplicate memory leak prevention verified")
+}
+
+// 9. Full-Stack End-to-End Test: Live Client SOCKS5 -> RelayClient -> Secure Relay -> Echo Target
+func TestPhase7LiveSOCKS5ProxyWithRelay(t *testing.T) {
+	// A. Start local Echo Server
+	echoLn, echoAddr := startEchoServer(t)
+	defer echoLn.Close()
+
+	echoHost, echoPortStr, _ := net.SplitHostPort(echoAddr)
+	var echoPort uint16
+	fmt.Sscanf(echoPortStr, "%d", &echoPort)
+
+	// B. Start Secure Relay Server
+	relayCfg := relay.DefaultConfig()
+	relayCfg.ListenAddr = "127.0.0.1:0"
+	_ = relayCfg.EnsureKeys()
+
+	relayServer, err := relay.NewServer(relayCfg)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	if err := relayServer.Start(); err != nil {
+		t.Fatalf("Relay Start failed: %v", err)
+	}
+	defer relayServer.Stop()
+
+	relayAddrStr := relayServer.Addr().String()
+
+	// C. Start Relay Client with SOCKS5 enabled on dynamic ephemeral port
+	clientCfg := multipath.RelayClientConfig{
+		RelayAddr:      relayAddrStr,
+		SOCKS5Listen:   "127.0.0.1:0",
+		RelayStaticPub: relayServer.StaticPublicKey(),
+	}
+	copy(clientCfg.PSK[:], relayCfg.PSK[:])
+
+	rc, err := multipath.NewRelayClient(clientCfg, nil)
+	if err != nil {
+		t.Fatalf("NewRelayClient failed: %v", err)
+	}
+	if err := rc.Connect(); err != nil {
+		t.Fatalf("RelayClient Connect failed: %v", err)
+	}
+	defer rc.Disconnect()
+
+	socksAddr := rc.SocksAddr()
+	if socksAddr == "" {
+		t.Fatalf("SOCKS5 proxy address is empty; listener failed to start")
+	}
+	t.Logf("[SUCCESS] Live SOCKS5 proxy active on %s (Relay: %s, Session: 0x%08X)", socksAddr, relayAddrStr, rc.SessionID())
+
+	// D. Connect standard TCP application socket to SOCKS5 proxy
+	appConn, err := net.DialTimeout("tcp", socksAddr, 2*time.Second)
+	if err != nil {
+		t.Fatalf("Failed to dial local SOCKS5 proxy: %v", err)
+	}
+	defer appConn.Close()
+
+	// 1. SOCKS5 Greeting: [VER=5, NMETHODS=1, METHOD=0 (No Auth)]
+	if _, err := appConn.Write([]byte{0x05, 0x01, 0x00}); err != nil {
+		t.Fatalf("SOCKS5 greeting write failed: %v", err)
+	}
+	greetResp := make([]byte, 2)
+	_ = appConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := appConn.Read(greetResp); err != nil {
+		t.Fatalf("SOCKS5 greeting read failed: %v", err)
+	}
+	if greetResp[0] != 0x05 || greetResp[1] != 0x00 {
+		t.Fatalf("SOCKS5 auth negotiation rejected: %v", greetResp)
+	}
+
+	// 2. SOCKS5 Connect Request: [VER=5, CMD=1 (CONNECT), RSV=0, ATYP=1 (IPv4), IP, Port]
+	echoIP := net.ParseIP(echoHost).To4()
+	req := []byte{0x05, 0x01, 0x00, 0x01}
+	req = append(req, echoIP...)
+	portBuf := make([]byte, 2)
+	portBuf[0] = byte(echoPort >> 8)
+	portBuf[1] = byte(echoPort & 0xFF)
+	req = append(req, portBuf...)
+
+	if _, err := appConn.Write(req); err != nil {
+		t.Fatalf("SOCKS5 connect request write failed: %v", err)
+	}
+
+	connectResp := make([]byte, 10)
+	if _, err := appConn.Read(connectResp); err != nil {
+		t.Fatalf("SOCKS5 connect response read failed: %v", err)
+	}
+	if connectResp[0] != 0x05 || connectResp[1] != 0x00 {
+		t.Fatalf("SOCKS5 connection rejected with status 0x%02x", connectResp[1])
+	}
+	_ = appConn.SetReadDeadline(time.Time{})
+	t.Log("[SUCCESS] SOCKS5 CONNECT tunnel established through Relay to Echo Server")
+
+	// 3. Transmit payload through SOCKS5 proxy and verify 100% roundtrip echo
+	payload := make([]byte, 2048)
+	_, _ = rand.Read(payload)
+	expectedHash := sha256.Sum256(payload)
+
+	if _, err := appConn.Write(payload); err != nil {
+		t.Fatalf("Application data write failed: %v", err)
+	}
+
+	_ = appConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	echoReceived := make([]byte, 0, len(payload))
+	recvBuf := make([]byte, 1024)
+	for len(echoReceived) < len(payload) {
+		n, err := appConn.Read(recvBuf)
+		if err != nil {
+			t.Fatalf("Application data read failed after %d bytes: %v", len(echoReceived), err)
+		}
+		echoReceived = append(echoReceived, recvBuf[:n]...)
+	}
+
+	receivedHash := sha256.Sum256(echoReceived)
+	if expectedHash != receivedHash {
+		t.Fatalf("Echo payload corruption: hash mismatch")
+	}
+
+	t.Logf("[SUCCESS] Full-stack SOCKS5 -> RelayClient -> Relay -> Echo verified: 100%% byte match (%d bytes), SHA-256 confirmed", len(echoReceived))
+}
+
+// 10. Physical Network Throughput Benchmark Execution Harness (Physical Network Mode)
 func TestPhase7PhysicalThroughputMeasurementHarness(t *testing.T) {
 	relayEndpoint := os.Getenv("DUALFLOW_TEST_REMOTE_RELAY")
 	if relayEndpoint == "" {

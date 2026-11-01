@@ -39,13 +39,20 @@ func NewTransportCipher(c noise.Cipher) *TransportCipher {
 
 // Encrypt encrypts plaintext with explicit sequence number and associated data (AAD).
 // It returns ciphertext with 16-byte authentication tag appended.
+// Returns nil if cipher is uninitialized or nil.
 func (tc *TransportCipher) Encrypt(seq uint64, aad, plaintext []byte) []byte {
+	if tc == nil || tc.cipher == nil {
+		return nil
+	}
 	return tc.cipher.Encrypt(nil, seq, aad, plaintext)
 }
 
 // Decrypt decrypts ciphertext with explicit sequence number and associated data (AAD).
-// Returns ErrDecryptionFailed if authentication tag verification fails.
+// Returns ErrDecryptionFailed if authentication tag verification fails or cipher is uninitialized.
 func (tc *TransportCipher) Decrypt(seq uint64, aad, ciphertext []byte) ([]byte, error) {
+	if tc == nil || tc.cipher == nil {
+		return nil, ErrDecryptionFailed
+	}
 	pt, err := tc.cipher.Decrypt(nil, seq, aad, ciphertext)
 	if err != nil {
 		return nil, ErrDecryptionFailed

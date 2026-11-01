@@ -367,6 +367,7 @@ func (st *SessionTable) Rekey(oldID uint32, newSession *Session, drainDuration t
 	}
 
 	// Migrate validated endpoints from old session to new session so path validation is retained
+	newSession.mu.Lock()
 	oldSession.mu.RLock()
 	for k, ep := range oldSession.Endpoints {
 		newSession.Endpoints[k] = &SessionEndpoint{
@@ -377,6 +378,7 @@ func (st *SessionTable) Rekey(oldID uint32, newSession *Session, drainDuration t
 		}
 	}
 	oldSession.mu.RUnlock()
+	newSession.mu.Unlock()
 
 	// Register new session as active
 	st.sessions[newSession.ID] = newSession

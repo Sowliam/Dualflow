@@ -81,6 +81,23 @@ func (f *RelayForwarder) UpdateSession(oldID uint32, newSession *Session) {
 	}
 }
 
+// CloseSessionFlows gracefully closes and removes all active flows belonging to a session
+func (f *RelayForwarder) CloseSessionFlows(sessionID uint32) {
+	f.mu.Lock()
+	var toClose []*RelayFlow
+	for flowID, rf := range f.flows {
+		if rf.Session != nil && rf.Session.ID == sessionID {
+			toClose = append(toClose, rf)
+			delete(f.flows, flowID)
+		}
+	}
+	f.mu.Unlock()
+
+	for _, rf := range toClose {
+		rf.Close()
+	}
+}
+
 // HandleFlowOpen processes a client MsgTypeFlowOpen request, dials the target TCP endpoint,
 // and sends MsgTypeFlowOpenAck back.
 func (f *RelayForwarder) HandleFlowOpen(session *Session, clientAddr *net.UDPAddr, pathID uint16, payload []byte) error {
@@ -144,10 +161,24 @@ func (f *RelayForwarder) pumpOutboundTCP(rf *RelayFlow) {
 	buf := make([]byte, transport.MaxStreamChunkSize)
 
 	defer func() {
-		// Send FIN to client
-		chunk, err := rf.Flow.EnqueueOutbound(nil, transport.FlagStreamFIN)
-		if err == nil && chunk != nil {
-			f.sendStreamChunk(rf, chunk.Offset, nil, transport.FlagStreamFIN)
+		// Send FIN to client only if flow and session remain active
+		select {
+		case <-rf.stopChan:
+			return
+		case <-f.stopChan:
+			return
+		default:
+		}
+		if rf.Session != nil {
+			rf.Session.mu.RLock()
+			active := rf.Session.State == SessionActive && rf.Session.SendCipher != nil
+			rf.Session.mu.RUnlock()
+			if active {
+				chunk, err := rf.Flow.EnqueueOutbound(nil, transport.FlagStreamFIN)
+				if err == nil && chunk != nil {
+					f.sendStreamChunk(rf, chunk.Offset, nil, transport.FlagStreamFIN)
+				}
+			}
 		}
 	}()
 

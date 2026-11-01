@@ -51,6 +51,11 @@ func (tb *TokenBucket) Allow() bool {
 	return false
 }
 
+type incomingPacket struct {
+	packet []byte
+	raddr  *net.UDPAddr
+}
+
 // Server is the DualFlow Secure Relay server instance
 type Server struct {
 	cfg            *Config
@@ -60,6 +65,8 @@ type Server struct {
 	staticKey      noise.DHKey
 	limiter        *TokenBucket
 	handshakeCache *HandshakeCache
+	packetChan     chan incomingPacket
+	workersWg      sync.WaitGroup
 	running        bool
 	mu             sync.Mutex
 	stopChan       chan struct{}
@@ -100,6 +107,7 @@ func NewServer(cfg *Config) (*Server, error) {
 		staticKey:      staticKeypair,
 		limiter:        NewTokenBucket(float64(cfg.HandshakeRateLimit), float64(cfg.HandshakeRateLimit)),
 		handshakeCache: NewHandshakeCache(),
+		packetChan:     make(chan incomingPacket, 2048),
 		stopChan:       make(chan struct{}),
 	}
 
@@ -135,6 +143,12 @@ func (s *Server) Start() error {
 	log.Printf("[INFO] DualFlow Secure Relay listening on %s (UDP)", conn.LocalAddr().String())
 	log.Printf("[INFO] Configuration: %s", s.cfg.RedactedSummary())
 
+	// Start bounded worker pool to prevent goroutine explosion under packet flood
+	for i := 0; i < 16; i++ {
+		s.workersWg.Add(1)
+		go s.workerLoop()
+	}
+
 	go s.readLoop()
 	return nil
 }
@@ -149,6 +163,8 @@ func (s *Server) Stop() {
 			_ = s.conn.Close()
 		}
 		s.mu.Unlock()
+
+		s.workersWg.Wait()
 
 		if s.forwarder != nil {
 			s.forwarder.Close()
@@ -183,6 +199,17 @@ func (s *Server) SendFrame(session *Session, raddr *net.UDPAddr, pathID uint16, 
 	if conn == nil {
 		return errors.New("server not listening")
 	}
+	if session == nil {
+		return ErrSessionNotFound
+	}
+
+	session.mu.RLock()
+	if session.State == SessionClosed || session.SendCipher == nil {
+		session.mu.RUnlock()
+		return ErrSessionNotFound
+	}
+	sendCipher := session.SendCipher
+	session.mu.RUnlock()
 
 	seq, err := session.SeqGen.Next()
 	if err != nil {
@@ -199,12 +226,27 @@ func (s *Server) SendFrame(session *Session, raddr *net.UDPAddr, pathID uint16, 
 	}
 
 	headerAAD := packet[:transport.HeaderLength]
-	ciphertext := session.SendCipher.Encrypt(seq, headerAAD, payload)
+	ciphertext := sendCipher.Encrypt(seq, headerAAD, payload)
+	if ciphertext == nil {
+		return errors.New("encryption failed or cipher closed")
+	}
 	copy(packet[transport.HeaderLength:], ciphertext)
 
 	session.Touch()
 	_, err = conn.WriteToUDP(packet, raddr)
 	return err
+}
+
+func (s *Server) workerLoop() {
+	defer s.workersWg.Done()
+	for {
+		select {
+		case <-s.stopChan:
+			return
+		case pkt := <-s.packetChan:
+			s.dispatchPacket(pkt.packet, pkt.raddr)
+		}
+	}
 }
 
 // readLoop reads datagrams from the network socket and routes them
@@ -235,7 +277,11 @@ func (s *Server) readLoop() {
 		rawPacket := make([]byte, n)
 		copy(rawPacket, buf[:n])
 
-		go s.dispatchPacket(rawPacket, raddr)
+		// Non-blocking dispatch to worker pool; drops under extreme burst to prevent OOM
+		select {
+		case s.packetChan <- incomingPacket{packet: rawPacket, raddr: raddr}:
+		default:
+		}
 	}
 }
 
@@ -281,6 +327,7 @@ func (s *Server) dispatchPacket(packet []byte, raddr *net.UDPAddr) {
 		s.handlePathResponse(session, raddr, frame.Header.PathID, plaintext)
 
 	case transport.MsgTypeClose:
+		s.forwarder.CloseSessionFlows(session.ID)
 		s.sessions.Remove(session.ID)
 
 	case transport.MsgTypePing:
@@ -324,8 +371,8 @@ func (s *Server) handleHandshake(frame *transport.Frame, rawPacket []byte, raddr
 	}
 
 	// Initial handshake endpoint is registered and marked validated for Path 1
-	ep := session.RegisterEndpoint(raddr, 1)
-	ep.IsValidated = true
+	session.RegisterEndpoint(raddr, 1)
+	session.SetEndpointValidated(raddr, true)
 
 	// Send handshake response
 	s.mu.Lock()

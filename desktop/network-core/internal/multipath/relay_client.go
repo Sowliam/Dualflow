@@ -1,6 +1,7 @@
 package multipath
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -166,6 +167,16 @@ func (rc *RelayClient) Connect() error {
 
 	log.Printf("[INFO] DualFlow Secure Relay connected successfully (SessionID: 0x%08X)", sessionID)
 
+	// Start local SOCKS5 proxy listener if configured
+	if rc.cfg.SOCKS5Listen != "" {
+		rc.socksProxy = proxy.NewClientProxyListener(rc.cfg.SOCKS5Listen, "", rc)
+		if err := rc.socksProxy.Start(context.Background()); err != nil {
+			log.Printf("[WARN] Failed to start local SOCKS5 listener on %s: %v", rc.cfg.SOCKS5Listen, err)
+		} else {
+			log.Printf("[INFO] DualFlow SOCKS5 proxy listener active on %s", rc.cfg.SOCKS5Listen)
+		}
+	}
+
 	go rc.readLoop()
 	go rc.retransmitLoop()
 
@@ -216,6 +227,16 @@ func (rc *RelayClient) SessionID() uint32 {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	return rc.sessionID
+}
+
+// SocksAddr returns the bound address of the local SOCKS5 proxy listener
+func (rc *RelayClient) SocksAddr() string {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if rc.socksProxy != nil {
+		return rc.socksProxy.Addr()
+	}
+	return ""
 }
 
 // SendControlFrame sends an encrypted control message to the Relay
@@ -376,6 +397,16 @@ func (rc *RelayClient) handleStreamData(pathID uint16, payload []byte) {
 		return
 	}
 
+	// Dispatch to active SOCKS5 proxy listener if running
+	if rc.socksProxy != nil {
+		_ = rc.socksProxy.HandleInboundStreamData(
+			streamFrame.Header.FlowID,
+			streamFrame.Header.StreamOffset,
+			streamFrame.Header.StreamFlags,
+			streamFrame.Data,
+		)
+	}
+
 	rc.flowsMu.RLock()
 	cf, exists := rc.flows[streamFrame.Header.FlowID]
 	rc.flowsMu.RUnlock()
@@ -452,6 +483,10 @@ func (rc *RelayClient) handleFlowOpenAck(payload []byte) {
 		return
 	}
 
+	if rc.socksProxy != nil {
+		rc.socksProxy.HandleFlowOpenAck(ack.FlowID, ack.Status)
+	}
+
 	rc.flowsMu.RLock()
 	cf, exists := rc.flows[ack.FlowID]
 	rc.flowsMu.RUnlock()
@@ -460,6 +495,77 @@ func (rc *RelayClient) handleFlowOpenAck(payload []byte) {
 		log.Printf("[WARN] Relay rejected flow %d (Status: %d)", ack.FlowID, ack.Status)
 		cf.Close()
 	}
+}
+
+// SendFlowOpen implements proxy.TunnelSender
+func (rc *RelayClient) SendFlowOpen(flowID uint32, port uint16, addrType uint8, addr string) error {
+	if !rc.IsConnected() {
+		return ErrRelayNotConnected
+	}
+
+	var flowModel *proxy.Flow
+	if rc.socksProxy != nil {
+		flowModel, _ = rc.socksProxy.GetFlowTable().Get(flowID)
+	}
+	if flowModel == nil {
+		flowModel = proxy.NewFlow(flowID)
+	}
+
+	cf := &ClientFlow{
+		FlowID:   flowID,
+		Flow:     flowModel,
+		stopChan: make(chan struct{}),
+	}
+
+	rc.flowsMu.Lock()
+	rc.flows[flowID] = cf
+	rc.flowsMu.Unlock()
+
+	openBytes, err := transport.EncodeFlowOpen(flowID, port, addrType, addr)
+	if err != nil {
+		cf.Close()
+		return err
+	}
+
+	return rc.SendControlFrame(transport.MsgTypeFlowOpen, openBytes)
+}
+
+// SendStreamData implements proxy.TunnelSender
+func (rc *RelayClient) SendStreamData(flowID uint32, offset uint64, flags uint16, data []byte) error {
+	rc.flowsMu.RLock()
+	cf, exists := rc.flows[flowID]
+	rc.flowsMu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("unknown flow id: %d", flowID)
+	}
+
+	rc.sendStreamChunk(cf, offset, data, flags)
+	return nil
+}
+
+// SendStreamAck implements proxy.TunnelSender
+func (rc *RelayClient) SendStreamAck(flowID uint32, cumAck uint64, sackBlocks []transport.SackBlock) error {
+	ackPayload, err := transport.EncodeStreamAck(flowID, cumAck, sackBlocks)
+	if err != nil {
+		return err
+	}
+	return rc.SendControlFrame(transport.MsgTypeStreamAck, ackPayload)
+}
+
+// SendFlowRST implements proxy.TunnelSender
+func (rc *RelayClient) SendFlowRST(flowID uint32) error {
+	rc.flowsMu.Lock()
+	cf, exists := rc.flows[flowID]
+	if exists {
+		delete(rc.flows, flowID)
+	}
+	rc.flowsMu.Unlock()
+
+	if exists {
+		cf.Close()
+	}
+	return nil
 }
 
 // sendStreamChunk packages a chunk and transmits across chosen path
