@@ -101,6 +101,12 @@ func (p *ClientProxyListener) Stop() error {
 	if p.listener != nil {
 		_ = p.listener.Close()
 	}
+	for flowID, conn := range p.clientConns {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		delete(p.clientConns, flowID)
+	}
 	p.mu.Unlock()
 
 	return nil
@@ -396,6 +402,9 @@ func (p *ClientProxyListener) HandleInboundStreamData(flowID uint32, offset uint
 	if !exists {
 		return errors.New("stream chunk for unknown flow")
 	}
+
+	flow.WriteMu.Lock()
+	defer flow.WriteMu.Unlock()
 
 	readyBytes, deliversFIN, _, err := flow.ReorderBuffer.InsertChunk(offset, flags, data)
 	if err != nil {

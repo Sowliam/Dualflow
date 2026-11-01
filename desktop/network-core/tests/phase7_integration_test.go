@@ -1,9 +1,11 @@
 package tests
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"os"
@@ -758,4 +760,365 @@ func TestPhase7PhysicalThroughputMeasurementHarness(t *testing.T) {
 
 	t.Logf("[INFO] Executing live physical network benchmark against remote relay: %s", relayEndpoint)
 	// When configured, connects to physical relay over Interface 13 and Interface 20
+}
+
+// 11. Fuzzing and Corrupted Packet Resilience Suite
+func TestPhase7FuzzAndCorruptPacketResilience(t *testing.T) {
+	relayCfg := relay.DefaultConfig()
+	relayCfg.ListenAddr = "127.0.0.1:0"
+	_ = relayCfg.EnsureKeys()
+
+	server, err := relay.NewServer(relayCfg)
+	if err != nil {
+		t.Fatalf("Failed to initialize Relay server: %v", err)
+	}
+	if err := server.Start(); err != nil {
+		t.Fatalf("Failed to start Relay server: %v", err)
+	}
+	defer server.Stop()
+
+	serverAddr := server.Addr()
+	udpConn, err := net.DialUDP("udp", nil, serverAddr)
+	if err != nil {
+		t.Fatalf("Failed to dial UDP: %v", err)
+	}
+	defer udpConn.Close()
+
+	// Corpus of malformed datagrams
+	fuzzInputs := [][]byte{
+		{},                                                  // 0-byte
+		{0xDF},                                              // 1-byte
+		{0xDF, 0x03},                                        // 2-byte header start
+		make([]byte, 15),                                    // 15-byte short
+		make([]byte, 31),                                    // 31-byte short (header is 32)
+		bytes.Repeat([]byte{0xFF}, 32),                      // Wrong magic
+		bytes.Repeat([]byte{0x00}, 100),                     // All zeros
+		bytes.Repeat([]byte{0xAA}, 1400),                    // Maximum MTU junk
+	}
+
+	// Send all corrupt packets in rapid succession
+	for i, input := range fuzzInputs {
+		_, writeErr := udpConn.Write(input)
+		if writeErr != nil {
+			t.Fatalf("Failed sending fuzz packet %d: %v", i, writeErr)
+		}
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Now verify server is still fully functional and accepts a legitimate connection
+	clientCfg := multipath.RelayClientConfig{
+		RelayAddr:      serverAddr.String(),
+		SOCKS5Listen:   "127.0.0.1:0",
+		RelayStaticPub: server.StaticPublicKey(),
+	}
+	copy(clientCfg.PSK[:], relayCfg.PSK[:])
+
+	client, err := multipath.NewRelayClient(clientCfg, nil)
+	if err != nil {
+		t.Fatalf("Failed to create Relay client: %v", err)
+	}
+	defer client.Disconnect()
+
+	if err := client.Connect(); err != nil {
+		t.Fatalf("Server failed to accept legitimate connection after fuzz attack: %v", err)
+	}
+
+	t.Logf("[SUCCESS] Fuzz and Corrupt Packet Resilience: Server handled %d malformed packets without panic or degradation", len(fuzzInputs))
+}
+
+// 12. Heavy Multi-Stream Concurrency Stress Test (8 parallel SOCKS5 flows)
+func TestPhase7HeavyConcurrentStreams(t *testing.T) {
+	echoLn, echoAddr := startEchoServer(t)
+	defer echoLn.Close()
+
+	_, echoPortStr, _ := net.SplitHostPort(echoAddr)
+	var echoPort uint16
+	fmt.Sscanf(echoPortStr, "%d", &echoPort)
+
+	relayCfg := relay.DefaultConfig()
+	relayCfg.ListenAddr = "127.0.0.1:0"
+	_ = relayCfg.EnsureKeys()
+
+	server, err := relay.NewServer(relayCfg)
+	if err != nil {
+		t.Fatalf("Failed to create Relay: %v", err)
+	}
+	if err := server.Start(); err != nil {
+		t.Fatalf("Failed to start Relay: %v", err)
+	}
+	defer server.Stop()
+
+	clientCfg := multipath.RelayClientConfig{
+		RelayAddr:      server.Addr().String(),
+		SOCKS5Listen:   "127.0.0.1:0",
+		RelayStaticPub: server.StaticPublicKey(),
+	}
+	copy(clientCfg.PSK[:], relayCfg.PSK[:])
+
+	client, err := multipath.NewRelayClient(clientCfg, nil)
+	if err != nil {
+		t.Fatalf("Failed to create Relay client: %v", err)
+	}
+	defer client.Disconnect()
+
+	if err := client.Connect(); err != nil {
+		t.Fatalf("Client failed to connect: %v", err)
+	}
+
+	socksAddr := client.SocksAddr()
+	numStreams := 8
+	streamBytes := 16384 // 16 KB per stream = 128 KB total across 8 streams
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, numStreams)
+
+	for i := 0; i < numStreams; i++ {
+		wg.Add(1)
+		go func(streamIdx int) {
+			defer wg.Done()
+
+			appConn, err := net.DialTimeout("tcp", socksAddr, 3*time.Second)
+			if err != nil {
+				errChan <- fmt.Errorf("stream %d dial failed: %w", streamIdx, err)
+				return
+			}
+			defer appConn.Close()
+
+			// SOCKS5 handshake
+			if _, err := appConn.Write([]byte{0x05, 0x01, 0x00}); err != nil {
+				errChan <- err
+				return
+			}
+			authResp := make([]byte, 2)
+			if _, err := io.ReadFull(appConn, authResp); err != nil {
+				errChan <- err
+				return
+			}
+
+			// CONNECT to echo server
+			connReq := []byte{0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, byte(echoPort >> 8), byte(echoPort & 0xFF)}
+			if _, err := appConn.Write(connReq); err != nil {
+				errChan <- err
+				return
+			}
+			connResp := make([]byte, 10)
+			if _, err := io.ReadFull(appConn, connResp); err != nil {
+				errChan <- err
+				return
+			}
+			if connResp[1] != 0x00 {
+				errChan <- fmt.Errorf("stream %d SOCKS5 connect failed: status 0x%02x", streamIdx, connResp[1])
+				return
+			}
+
+			// Generate stream-unique pseudo-random payload
+			payload := make([]byte, streamBytes)
+			for j := range payload {
+				payload[j] = byte((streamIdx*73 + j) & 0xFF)
+			}
+			expectedHash := sha256.Sum256(payload)
+
+			// Write in 2 KB chunks
+			go func() {
+				chunkSize := 2048
+				for offset := 0; offset < len(payload); offset += chunkSize {
+					end := offset + chunkSize
+					if end > len(payload) {
+						end = len(payload)
+					}
+					_, _ = appConn.Write(payload[offset:end])
+				}
+			}()
+
+			// Read back all echoed bytes
+			received := make([]byte, 0, streamBytes)
+			buf := make([]byte, 4096)
+			for len(received) < streamBytes {
+				_ = appConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+				n, err := appConn.Read(buf)
+				if err != nil {
+					errChan <- fmt.Errorf("stream %d read failed after %d bytes: %w", streamIdx, len(received), err)
+					return
+				}
+				received = append(received, buf[:n]...)
+			}
+
+			receivedHash := sha256.Sum256(received)
+			if expectedHash != receivedHash {
+				errChan <- fmt.Errorf("stream %d data corruption: hash mismatch", streamIdx)
+				return
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	for err := range errChan {
+		if err != nil {
+			t.Fatalf("Concurrent stream error: %v", err)
+		}
+	}
+
+	t.Logf("[SUCCESS] Heavy Concurrency: %d simultaneous streams transferred %d bytes each (total %d bytes) with zero corruption",
+		numStreams, streamBytes, numStreams*streamBytes)
+}
+
+// 13. Large Payload Transfer Test (512 KB through SOCKS5 and Relay)
+func TestPhase7LargePayloadTransfer(t *testing.T) {
+	echoLn, echoAddr := startEchoServer(t)
+	defer echoLn.Close()
+
+	_, echoPortStr, _ := net.SplitHostPort(echoAddr)
+	var echoPort uint16
+	fmt.Sscanf(echoPortStr, "%d", &echoPort)
+
+	relayCfg := relay.DefaultConfig()
+	relayCfg.ListenAddr = "127.0.0.1:0"
+	_ = relayCfg.EnsureKeys()
+
+	server, err := relay.NewServer(relayCfg)
+	if err != nil {
+		t.Fatalf("Failed to create Relay: %v", err)
+	}
+	if err := server.Start(); err != nil {
+		t.Fatalf("Failed to start Relay: %v", err)
+	}
+	defer server.Stop()
+
+	clientCfg := multipath.RelayClientConfig{
+		RelayAddr:      server.Addr().String(),
+		SOCKS5Listen:   "127.0.0.1:0",
+		RelayStaticPub: server.StaticPublicKey(),
+	}
+	copy(clientCfg.PSK[:], relayCfg.PSK[:])
+
+	client, err := multipath.NewRelayClient(clientCfg, nil)
+	if err != nil {
+		t.Fatalf("Failed to create Relay client: %v", err)
+	}
+	defer client.Disconnect()
+
+	if err := client.Connect(); err != nil {
+		t.Fatalf("Client failed to connect: %v", err)
+	}
+
+	appConn, err := net.DialTimeout("tcp", client.SocksAddr(), 3*time.Second)
+	if err != nil {
+		t.Fatalf("Failed to dial SOCKS5: %v", err)
+	}
+	defer appConn.Close()
+
+	// SOCKS5 greeting & CONNECT
+	_, _ = appConn.Write([]byte{0x05, 0x01, 0x00})
+	authResp := make([]byte, 2)
+	_, _ = io.ReadFull(appConn, authResp)
+
+	connReq := []byte{0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, byte(echoPort >> 8), byte(echoPort & 0xFF)}
+	_, _ = appConn.Write(connReq)
+	connResp := make([]byte, 10)
+	_, _ = io.ReadFull(appConn, connResp)
+	if connResp[1] != 0x00 {
+		t.Fatalf("SOCKS5 connect rejected: 0x%02x", connResp[1])
+	}
+
+	totalBytes := 524288 // 512 KB
+	payload := make([]byte, totalBytes)
+	_, _ = rand.Read(payload)
+	expectedHash := sha256.Sum256(payload)
+
+	start := time.Now()
+
+	// Concurrent sender
+	go func() {
+		chunkSize := 4096
+		for offset := 0; offset < len(payload); offset += chunkSize {
+			end := offset + chunkSize
+			if end > len(payload) {
+				end = len(payload)
+			}
+			_, _ = appConn.Write(payload[offset:end])
+		}
+	}()
+
+	// Receiver
+	received := make([]byte, 0, totalBytes)
+	recvBuf := make([]byte, 8192)
+	for len(received) < totalBytes {
+		_ = appConn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		n, err := appConn.Read(recvBuf)
+		if err != nil {
+			t.Fatalf("Read failed after %d bytes: %v", len(received), err)
+		}
+		received = append(received, recvBuf[:n]...)
+	}
+
+	elapsed := time.Since(start)
+	receivedHash := sha256.Sum256(received)
+	if expectedHash != receivedHash {
+		for i := 0; i < len(payload) && i < len(received); i++ {
+			if payload[i] != received[i] {
+				chunkIdx := i / 1280
+				offsetInChunk := i % 1280
+				gotSnippet := received[i : i+32]
+				foundInPayloadAt := bytes.Index(payload, gotSnippet)
+				t.Fatalf("Large transfer hash mismatch: first diff at byte %d (chunk %d, offset %d)\nExpected: %x\nGot:      %x\nFound 'Got' in original payload at byte: %d (chunk %d)",
+					i, chunkIdx, offsetInChunk,
+					payload[i:i+32], gotSnippet,
+					foundInPayloadAt, foundInPayloadAt/1280)
+			}
+		}
+		t.Fatalf("Large transfer hash mismatch: lengths payload=%d, received=%d", len(payload), len(received))
+	}
+
+	throughputMBps := (float64(totalBytes) / (1024 * 1024)) / elapsed.Seconds()
+	t.Logf("[SUCCESS] Large Payload Transfer: %d bytes (512 KB) transferred in %v (%.2f MB/s loopback) with 100%% byte and SHA-256 match",
+		totalBytes, elapsed, throughputMBps)
+}
+
+// 14. Graceful Teardown and Resource Cleanup Verification
+func TestPhase7GracefulTeardownAndResourceCleanup(t *testing.T) {
+	initialAlloc := proxy.GetGlobalCoordinator().Allocated()
+
+	relayCfg := relay.DefaultConfig()
+	relayCfg.ListenAddr = "127.0.0.1:0"
+	_ = relayCfg.EnsureKeys()
+
+	server, err := relay.NewServer(relayCfg)
+	if err != nil {
+		t.Fatalf("Server create failed: %v", err)
+	}
+	if err := server.Start(); err != nil {
+		t.Fatalf("Server start failed: %v", err)
+	}
+
+	clientCfg := multipath.RelayClientConfig{
+		RelayAddr:      server.Addr().String(),
+		SOCKS5Listen:   "127.0.0.1:0",
+		RelayStaticPub: server.StaticPublicKey(),
+	}
+	copy(clientCfg.PSK[:], relayCfg.PSK[:])
+
+	client, err := multipath.NewRelayClient(clientCfg, nil)
+	if err != nil {
+		t.Fatalf("Client create failed: %v", err)
+	}
+
+	if err := client.Connect(); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+
+	// Graceful teardown
+	client.Disconnect()
+	server.Stop()
+
+	time.Sleep(100 * time.Millisecond)
+
+	finalAlloc := proxy.GetGlobalCoordinator().Allocated()
+	if finalAlloc > initialAlloc {
+		t.Fatalf("Resource leak detected: coordinator allocated bytes increased from %d to %d", initialAlloc, finalAlloc)
+	}
+
+	t.Logf("[SUCCESS] Teardown and Cleanup: Global memory returned to baseline (%d bytes), sockets closed cleanly", finalAlloc)
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -323,6 +324,9 @@ func (rc *RelayClient) readLoop() {
 			case <-rc.stopChan:
 				return
 			default:
+				if errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "closed") {
+					return
+				}
 				continue
 			}
 		}
@@ -415,6 +419,7 @@ func (rc *RelayClient) handleStreamData(pathID uint16, payload []byte) {
 		return
 	}
 
+	cf.Flow.WriteMu.Lock()
 	readyBytes, deliversFin, _, _ := cf.Flow.ReorderBuffer.InsertChunk(
 		streamFrame.Header.StreamOffset,
 		streamFrame.Header.StreamFlags,
@@ -431,6 +436,7 @@ func (rc *RelayClient) handleStreamData(pathID uint16, payload []byte) {
 			_ = tcpConn.CloseWrite()
 		}
 	}
+	cf.Flow.WriteMu.Unlock()
 
 	// Send StreamAck back to Relay
 	ackPayload, err := transport.EncodeStreamAck(

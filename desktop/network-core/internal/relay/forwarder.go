@@ -261,6 +261,7 @@ func (f *RelayForwarder) HandleStreamData(session *Session, clientAddr *net.UDPA
 		return nil
 	}
 
+	rf.Flow.WriteMu.Lock()
 	readyBytes, deliversFin, _, _ := rf.Flow.ReorderBuffer.InsertChunk(
 		streamFrame.Header.StreamOffset,
 		streamFrame.Header.StreamFlags,
@@ -282,6 +283,7 @@ func (f *RelayForwarder) HandleStreamData(session *Session, clientAddr *net.UDPA
 			rf.Flow.MarkRemoteFinDelivered()
 		}
 	}
+	rf.Flow.WriteMu.Unlock()
 
 	// Send cumulative ACK + SACK back to client
 	ackPayload, err := transport.EncodeStreamAck(

@@ -111,6 +111,7 @@ func (c *RTOCalculator) CurrentRTO() time.Duration {
 // Flow models an active end-to-end TCP connection proxied across DualFlow
 type Flow struct {
 	mu                  sync.Mutex
+	WriteMu             sync.Mutex // Serializes contiguous socket writes across concurrent packet workers
 	ID                  uint32
 	State               FlowState
 	NextTxOffset        uint64

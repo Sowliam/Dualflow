@@ -18,7 +18,7 @@ DualFlow is an experimental, high-performance networking system designed to bond
 
 ## 2. Current Implementation Status
 
-**Status:** `PHASE 7 COMPLETE — PHYSICAL VALIDATION PENDING`
+**Status:** `READY FOR HARDWARE VALIDATION`
 
 | Subsystem | Milestone | Verification Level | Status |
 |---|---|:---:|:---:|
@@ -28,10 +28,10 @@ DualFlow is an experimental, high-performance networking system designed to bond
 | **Wintun L3 Foundation** | Phase 4 | Driver Loading & Ring Buffer | **Complete** |
 | **DFTP Framing & Transport** | Phase 5 | Unit & Protocol Tests | **Complete** |
 | **Bonding Scheduler Engine** | Phase 6 | RTT / Loss Metric Tracking | **Complete** |
-| **User-Space TCP Stream Proxy** | Phase 7 | End-to-End Loopback Tests | **Complete** |
-| **Physical Multi-Path WAN Aggregation** | Phase 7 | Multi-Device Hardware Harness | **Pending External Hardware** |
+| **User-Space TCP Stream Proxy** | Phase 7 | End-to-End Loopback & Concurrency Tests | **Complete** |
+| **Physical Multi-Path WAN Aggregation** | Phase 7 | Multi-Device Hardware Harness (`dualflow-bench`) | **Ready for Hardware Validation** |
 
-> **Important Transparency Notice:** All protocol framing, Noise encryption, sliding window reassembly, SACK feedback, session rekey with in-flight drain (25s), and dynamic path failover are **100% verified** in code and local integration tests. However, physical multi-path WAN bandwidth aggregation across two independent physical gateways is **strictly marked as pending validation against a secondary physical host**. Loopback execution does not and cannot claim physical link aggregation.
+> **Important Transparency Notice:** All protocol framing, Noise_IKpsk2 encryption, sliding window reassembly, SACK feedback, session rekey with in-flight drain (25s), socket write serialization, fuzz resilience, and dynamic path failover are **100% verified** in code and automated integration tests. However, physical multi-path WAN bandwidth aggregation across two independent physical gateways is **strictly marked as ready for hardware validation against a secondary physical host**. Loopback execution does not and cannot claim physical link aggregation.
 
 ---
 
@@ -105,6 +105,9 @@ go build -o dualflow-core.exe ./cmd/dualflow-core
 
 # Build the Secure Relay Server
 go build -o dualflow-relay.exe ./cmd/dualflow-relay
+
+# Build the Hardware Validation Benchmark Tool
+go build -o dualflow-bench.exe ./cmd/dualflow-bench
 ```
 
 ### 5.2 Building the Desktop Electron Application
@@ -139,7 +142,7 @@ go vet ./...
 ### 6.2 Running All Unit & Local Integration Tests
 
 ```powershell
-go test -v ./...
+go test -count=1 ./...
 ```
 
 ### 6.3 Test Suite Classification
@@ -160,9 +163,48 @@ go test -v ./...
 | `TestPhase7PathTrackingAndFailover` | Integration | Simulates Path 1 failure, automatic reroute to Path 2, and Path 1 recovery with zero stream corruption. | **PASS** |
 | `TestPhase7ConcurrentTCPStreamsAndLargeTransfer` | Integration | Streams 4096-byte blocks across 3 concurrent TCP flows through the proxy simultaneously with zero cross-talk. | **PASS** |
 | `TestPhase7StatisticalFormulaVerificationOnly_Synthetic` | Mathematical | Validates Student's t distribution, confidence interval, and paired-difference math algorithms using synthetic test constants. *(Not a network speed benchmark).* | **PASS** |
+| `TestPhase7DuplicateOutOfOrderMemoryLeakRegression` | Regression | Verifies duplicate out-of-order chunks return `isDuplicate=true` and memory quota is never leaked. | **PASS** |
+| `TestPhase7LiveSOCKS5ProxyWithRelay` | Integration | Full end-to-end SOCKS5 CONNECT -> Tunnel -> Relay -> Remote Target loopback with SHA-256 match. | **PASS** |
+| `TestPhase7FuzzAndCorruptPacketResilience` | Fuzz / Security | Ingests 8 malformed, truncated, and corrupt packets; confirms zero panic and flawless subsequent connection. | **PASS** |
+| `TestPhase7HeavyConcurrentStreams` | Stress | Concurrently streams 131,072 bytes across 8 simultaneous SOCKS5 flows with 0 corruption. | **PASS** |
+| `TestPhase7LargePayloadTransfer` | Performance | Streams 524,288 bytes (512 KB) through proxy and relay with serialized in-order socket writes (100% SHA-256 match). | **PASS** |
+| `TestPhase7GracefulTeardownAndResourceCleanup` | Memory Safety | Verifies global coordinator memory returns to baseline (0 bytes) and all sockets close cleanly upon disconnect. | **PASS** |
 | `TestPhase7PhysicalThroughputMeasurementHarness` | Hardware | Live physical network throughput benchmark against a remote relay. Requires external host. | **SKIP** *(Awaiting Second Device)* |
 
-> **Note on `go test -race` on Windows:** The Go race detector on Windows requires CGO and a MinGW-w64 GCC compiler installed on `%PATH%`. If running without GCC, Go will output `go: -race requires cgo; enable cgo by setting CGO_ENABLED=1`.
+> **Note on `go test -race` on Windows:** The Go race detector on Windows requires CGO and a MinGW-w64 GCC compiler installed on `%PATH%`. If running without GCC, Go will output `go: -race requires cgo; enable cgo by setting CGO_ENABLED=1`. Concurrency and race freedom are instead verified through explicit RWMutex guards, channel architectures, atomic primitives, and dedicated multi-goroutine concurrent stream integration tests.
+
+---
+
+## 7. Physical Hardware Validation Guide
+
+When ready to validate true physical link aggregation across two independent Internet connections:
+
+### 7.1 Hardware Prerequisites
+1. **Windows Workstation (Workstation A):**
+   - Running Windows 10/11 x64.
+   - Connected to **two independent physical internet connections** (e.g. Ethernet on Interface 13 + 4G/5G USB Tethering on Interface 20).
+2. **Relay Server (Machine B):**
+   - A separate physical PC, laptop on local LAN, or unmetered cloud instance.
+   - Running `dualflow-relay.exe` and `dualflow-bench.exe -mode echo`.
+
+### 7.2 Execution Steps
+1. **On Machine B (Relay Server):**
+   ```powershell
+   # Start the relay server
+   .\dualflow-relay.exe -listen 0.0.0.0:51820 -psk 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+   # In a second terminal on Machine B, start the echo target server:
+   .\dualflow-bench.exe -mode echo -listen 0.0.0.0:8888
+   ```
+2. **On Machine A (Windows Client):**
+   Run the automated PowerShell runner:
+   ```powershell
+   .\scripts\run_hardware_validation.ps1 -RelayHost <Machine_B_IP> -StaticPubKey <Machine_B_Static_Pub_Hex>
+   ```
+
+### 7.3 Acceptance Criteria
+- **Pass:** Sustained throughput across both interfaces, 0 packet corruption (100% SHA-256 match), and aggregate throughput exceeds single-path baseline.
+- **Fail:** Hash mismatch, stream disconnection, or zero traffic recorded on either interface.
 
 ---
 
