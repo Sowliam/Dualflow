@@ -519,15 +519,20 @@ func (a *App) handleRequest(req *protocol.Request) {
 func (a *App) startBackgroundTelemetryLoop() {
 	ticker := time.NewTicker(1500 * time.Millisecond)
 	defer ticker.Stop()
+	iteration := 0
 
 	for {
 		select {
 		case <-a.stopChan:
 			return
 		case <-ticker.C:
-			if adapters, err := a.discovery.Discover(); err == nil {
-				a.paths.Reconcile(adapters)
-				a.syncMultipathPaths()
+			iteration++
+			// Periodically re-sync adapters every ~7.5 seconds to avoid high CPU and log spam
+			if iteration%5 == 0 {
+				if adapters, err := a.discovery.Discover(); err == nil {
+					a.paths.Reconcile(adapters)
+					a.syncMultipathPaths()
+				}
 			}
 
 			p1, p2 := a.paths.GetPaths()
