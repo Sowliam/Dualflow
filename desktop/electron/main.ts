@@ -354,7 +354,14 @@ async function createWindow() {
           jitterMs: data.path2?.jitterMs ?? null,
           lossPercent: data.path2?.lossPercent ?? null,
           probeTarget: '1.1.1.1:53',
-          lastProbeTimestamp: null,
+          lastProbeTimestamp: new Date().toLocaleTimeString(),
+          telemetryPoint: {
+            timestamp: Date.now(),
+            rttMs: data.path2?.rttMs ?? null,
+            rxMbps: data.path2?.rxMbps || 0,
+            txMbps: data.path2?.txMbps || 0,
+            loss: data.path2?.lossPercent || 0,
+          },
         }
 
         win.webContents.send('dualflow:telemetry-updated', {
