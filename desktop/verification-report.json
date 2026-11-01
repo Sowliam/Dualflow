@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-10-31T11:12:41.647Z",
+  "success": true,
+  "windowControls": {
+    "maximizeTested": true
+  },
+  "domAudit": {
+    "hasHype": false,
+    "hasEmojis": false,
+    "hasDualFlowAPI": true,
+    "textSample": "DUALFLOW\nv0.1.0-alpha\nCORE:\nIDLE\nTUN:\nUNBOUND\nGAMING\nStart Core Service\nRescan Adapters\nInterfaces enumerated\nPROFILE:\nGaming\nBalanced\nDownload\nNAVIGATION\nDashboard\nNetwork Adapters\nTraffic Policies\nGaming Optimizer\nSystem Logs\nSettings\nTarget OS\nWindows x64\nIPC Pipe\nConnected\nRoute Guardian\nArmed ("
+  },
+  "consoleErrors": [],
+  "screenshots": [
+    "screenshots\\01-dashboard.png",
+    "screenshots\\02-adapters.png",
+    "screenshots\\03-rules.png",
+    "screenshots\\04-gaming.png",
+    "screenshots\\05-logs.png",
+    "screenshots\\06-settings.png"
+  ]
+}

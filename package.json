@@ -1,0 +1,11 @@
+{
+  "name": "dualflow-workspace",
+  "version": "0.1.0-alpha",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix desktop run dev",
+    "build": "npm --prefix desktop run build",
+    "start": "npm --prefix desktop start"
+  }
+}
+

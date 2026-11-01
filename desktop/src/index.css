@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-base: #141618;
+    --surface-panel: #1B1E22;
+    --surface-raised: #24282E;
+    --surface-hover: #2B3037;
+    --border-subtle: #2C3238;
+    --border-strong: #3D444D;
+
+    --text-primary: #E2E5E9;
+    --text-secondary: #9098A2;
+    --text-muted: #5E6670;
+
+    --path-modem: #4F8FBF;
+    --path-android: #B97A4A;
+
+    --accent-amber: #D99B32;
+    --status-ok: #4EA869;
+    --status-warn: #CFA043;
+    --status-fault: #C45347;
+    --status-idle: #5A626A;
+
+    --font-sans: 'IBM Plex Sans', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'IBM Plex Mono', 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border-color: var(--border-subtle);
+  }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.4;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Telemetry figures & tabular numbers */
+  .tabular-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  /* Custom thin scrollbar for Windows utility styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--bg-base);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-subtle);
+    border-radius: 2px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--border-strong);
+  }
+}
+
+/* Electron App Region drag rules */
+.titlebar-drag-region {
+  -webkit-app-region: drag;
+}
+
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}

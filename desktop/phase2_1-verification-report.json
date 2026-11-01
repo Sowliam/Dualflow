@@ -1,0 +1,159 @@
+{
+  "timestamp": "2026-10-31T11:55:52.211Z",
+  "success": true,
+  "discoveredAdaptersCount": 6,
+  "discoveredAdapters": [
+    {
+      "id": "adapter-ethernet",
+      "name": "Ethernet",
+      "description": "Realtek PCIe GbE Family Controller",
+      "manufacturer": "Realtek",
+      "pnpId": "PCI\\VEN_10EC&DEV_8168&SUBSYS_86771043&REV_15",
+      "status": "connected",
+      "mac": "D4-5D-64-F2-E3-1A",
+      "mediaType": "ethernet",
+      "classification": "modem",
+      "classificationConfidence": "high",
+      "classificationReasons": [
+        "PnP Hardware ID: PCI\\VEN_10EC&DEV_8168&SUBSYS_86771043&REV_15",
+        "Manufacturer: Realtek",
+        "Physical PCI/PCIe Ethernet NIC with active gateway 192.168.1.1 (Home Modem/Router)"
+      ],
+      "ipv4": "192.168.1.10",
+      "netmask": "255.255.255.0",
+      "gateway": "192.168.1.1",
+      "metric": 10,
+      "mtu": 1500
+    },
+    {
+      "id": "adapter-local-area-connection",
+      "name": "Local Area Connection",
+      "description": "TAP-Windows Adapter V9 for OpenVPN Connect",
+      "manufacturer": "TAP-Windows Provider V9 for OpenVPN Connect",
+      "pnpId": "tap_ovpnconnect",
+      "status": "disconnected",
+      "mac": "00-FF-B1-E0-24-B6",
+      "mediaType": "vpn",
+      "classification": "vpn",
+      "classificationConfidence": "high",
+      "classificationReasons": [
+        "PnP ID: tap_ovpnconnect",
+        "VPN virtual adapter: TAP-Windows Adapter V9 for OpenVPN Connect"
+      ],
+      "ipv4": null,
+      "netmask": null,
+      "gateway": null,
+      "metric": 75,
+      "mtu": 1500
+    },
+    {
+      "id": "adapter-local-area-connection-3",
+      "name": "Local Area Connection 3",
+      "description": "WireSock Virtual Adapter",
+      "manufacturer": "NT KERNEL",
+      "pnpId": "wiresock",
+      "status": "disconnected",
+      "mac": "—",
+      "mediaType": "vpn",
+      "classification": "vpn",
+      "classificationConfidence": "high",
+      "classificationReasons": [
+        "PnP ID: wiresock",
+        "VPN virtual adapter: WireSock Virtual Adapter"
+      ],
+      "ipv4": null,
+      "netmask": null,
+      "gateway": null,
+      "metric": 0,
+      "mtu": 1500
+    },
+    {
+      "id": "adapter-local-area-connection-2",
+      "name": "Local Area Connection 2",
+      "description": "TAP-Windows Adapter V9",
+      "manufacturer": "TAP-Windows Provider V9",
+      "pnpId": "tap0901",
+      "status": "disconnected",
+      "mac": "00-FF-F6-53-F1-A4",
+      "mediaType": "vpn",
+      "classification": "vpn",
+      "classificationConfidence": "high",
+      "classificationReasons": [
+        "PnP ID: tap0901",
+        "VPN virtual adapter: TAP-Windows Adapter V9"
+      ],
+      "ipv4": null,
+      "netmask": null,
+      "gateway": null,
+      "metric": 75,
+      "mtu": 1500
+    },
+    {
+      "id": "adapter-hotspotshield-network-adapter",
+      "name": "HotspotShield Network Adapter",
+      "description": "HotspotShield TAP-Windows Adapter V9",
+      "manufacturer": "HotspotShield TAP-Windows Provider V9",
+      "pnpId": "hsstap",
+      "status": "disconnected",
+      "mac": "00-FF-23-5D-5B-32",
+      "mediaType": "vpn",
+      "classification": "vpn",
+      "classificationConfidence": "high",
+      "classificationReasons": [
+        "PnP ID: hsstap",
+        "VPN virtual adapter: HotspotShield TAP-Windows Adapter V9"
+      ],
+      "ipv4": null,
+      "netmask": null,
+      "gateway": null,
+      "metric": 75,
+      "mtu": 1500
+    },
+    {
+      "id": "adapter-vethernet--default-switch-",
+      "name": "vethernet (default switch)",
+      "description": "vethernet (default switch)",
+      "status": "connected",
+      "mac": "00-15-5D-F1-0B-00",
+      "mediaType": "virtual",
+      "classification": "virtual",
+      "classificationConfidence": "high",
+      "classificationReasons": [
+        "Virtual hypervisor switch: vethernet (default switch)"
+      ],
+      "ipv4": "172.17.96.1",
+      "netmask": "255.255.240.0",
+      "gateway": null,
+      "metric": 75,
+      "mtu": 1500
+    }
+  ],
+  "telemetryValidation": {
+    "measuredSourceIp": "192.168.1.10",
+    "probeTarget": "1.1.1.1",
+    "lastRttMs": 139,
+    "rttSamplesCount": 4,
+    "rttMinMs": 119,
+    "rttMaxMs": 150,
+    "measuredRxMbps": 0.05682457337883959,
+    "measuredTxMbps": 6.347931740614334,
+    "throughputFormula": "Mbps = (deltaBytes * 8) / elapsedSeconds / 1,000,000"
+  },
+  "domAudit": {
+    "hasRealEthernet": true,
+    "hasRealIp": true,
+    "hasRealGateway": true,
+    "hasRealMac": true,
+    "hasAndroidStandby": true,
+    "excerpt": "DUALFLOW\nv0.1.0-alpha\nCORE:\nIDLE\nTUN:\nUNBOUND\nGAMING\nStart Core Service\nRescan Adapters\nInterfaces enumerated\nPROFILE:\nGaming\nBalanced\nDownload\nNAVIGATION\nDashboard\nNetwork Adapters\nTraffic Policies\nGaming Optimizer\nSystem Logs\nSettings\nTarget OS\nWindows x64\nIPC Pipe\nConnected\nRoute Guardian\nArmed (Auto-restore)\nPATH 1: HOME MODEM / ISP\nPATH 1 (PRIMARY ISP)\n\nRealtek PCIe GbE Family Controller\n\nONLINE\nIPV4 ADDRESS\n192.168.1.10\nDEFAULT GATEWAY\n192.168.1.1\nMETRIC / MTU\n10 / 1500\nMEDIA TYPE\nETHERNET\nPHYSICAL MAC\nD4-5D-64-F2-E3-1A\nSOURCE BIND IP\n192.168.1.10\nRX RATE\nMbps\n0.06\nTX RATE\nMbps\n6.35\nLATENCY (RTT)\nms\n139.0\nmin 119 / max 150\nJITTER / LOSS\n%\n11.0 ms\n0.0%\nTELEMETRY OSCILLOSCOPE (LAST 60 SE"
+  },
+  "consoleErrors": [],
+  "screenshots": [
+    "screenshots\\01-dashboard.png",
+    "screenshots\\02-adapters.png",
+    "screenshots\\03-rules.png",
+    "screenshots\\04-gaming.png",
+    "screenshots\\05-logs.png",
+    "screenshots\\06-settings.png"
+  ]
+}

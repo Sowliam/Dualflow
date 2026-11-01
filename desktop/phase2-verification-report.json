@@ -1,0 +1,124 @@
+{
+  "timestamp": "2026-10-31T11:40:40.231Z",
+  "success": true,
+  "discoveredAdaptersCount": 6,
+  "discoveredAdapters": [
+    {
+      "name": "Local Area Connection 2",
+      "description": "TAP-Windows Adapter V9",
+      "status": "disconnected",
+      "ipv4": "169.254.85.234",
+      "gateway": null,
+      "metric": 75,
+      "mtu": 1500,
+      "mac": "00-FF-F6-53-F1-A4",
+      "mediaType": "vpn",
+      "classification": "vpn",
+      "classificationConfidence": "high",
+      "classificationReasons": [
+        "VPN adapter pattern matched: TAP-Windows Adapter V9"
+      ]
+    },
+    {
+      "name": "Local Area Connection",
+      "description": "TAP-Windows Adapter V9 for OpenVPN Connect",
+      "status": "disconnected",
+      "ipv4": "169.254.45.215",
+      "gateway": null,
+      "metric": 75,
+      "mtu": 1500,
+      "mac": "00-FF-B1-E0-24-B6",
+      "mediaType": "vpn",
+      "classification": "vpn",
+      "classificationConfidence": "high",
+      "classificationReasons": [
+        "VPN adapter pattern matched: TAP-Windows Adapter V9 for OpenVPN Connect"
+      ]
+    },
+    {
+      "name": "vEthernet (Default Switch)",
+      "description": "Hyper-V Virtual Ethernet Adapter",
+      "status": "connected",
+      "ipv4": "172.17.96.1",
+      "gateway": null,
+      "metric": 75,
+      "mtu": 1500,
+      "mac": "00-15-5D-F1-0B-00",
+      "mediaType": "virtual",
+      "classification": "virtual",
+      "classificationConfidence": "high",
+      "classificationReasons": [
+        "Virtual network bus / Hyper-V pattern: Hyper-V Virtual Ethernet Adapter"
+      ]
+    },
+    {
+      "name": "Local Area Connection 3",
+      "description": "WireSock Virtual Adapter",
+      "status": "disconnected",
+      "ipv4": null,
+      "gateway": null,
+      "metric": 0,
+      "mtu": 1500,
+      "mac": "-",
+      "mediaType": "vpn",
+      "classification": "vpn",
+      "classificationConfidence": "high",
+      "classificationReasons": [
+        "VPN adapter pattern matched: WireSock Virtual Adapter"
+      ]
+    },
+    {
+      "name": "Ethernet",
+      "description": "Realtek PCIe GbE Family Controller",
+      "status": "connected",
+      "ipv4": "192.168.1.10",
+      "gateway": "192.168.1.1",
+      "metric": 10,
+      "mtu": 1500,
+      "mac": "D4-5D-64-F2-E3-1A",
+      "mediaType": "ethernet",
+      "classification": "modem",
+      "classificationConfidence": "high",
+      "classificationReasons": [
+        "Physical PCI/PCIe Ethernet NIC with active gateway 192.168.1.1 (Home Modem/Router)"
+      ]
+    },
+    {
+      "name": "HotspotShield Network Adapter",
+      "description": "HotspotShield TAP-Windows Adapter V9",
+      "status": "disconnected",
+      "ipv4": "169.254.19.233",
+      "gateway": null,
+      "metric": 75,
+      "mtu": 1500,
+      "mac": "00-FF-23-5D-5B-32",
+      "mediaType": "vpn",
+      "classification": "vpn",
+      "classificationConfidence": "high",
+      "classificationReasons": [
+        "VPN adapter pattern matched: HotspotShield TAP-Windows Adapter V9"
+      ]
+    }
+  ],
+  "windowControls": {
+    "maximizeTested": true
+  },
+  "dashboardAudit": {
+    "hasRealEthernet": true,
+    "hasRealIp": true,
+    "hasRealGateway": true,
+    "hasRealMac": true,
+    "hasRealMetric": true,
+    "hasAndroidStandby": true,
+    "excerpt": "DUALFLOW\nv0.1.0-alpha\nCORE:\nIDLE\nTUN:\nUNBOUND\nGAMING\nStart Core Service\nRescan Adapters\nInterfaces enumerated\nPROFILE:\nGaming\nBalanced\nDownload\nNAVIGATION\nDashboard\nNetwork Adapters\nTraffic Policies\nGaming Optimizer\nSystem Logs\nSettings\nTarget OS\nWindows x64\nIPC Pipe\nConnected\nRoute Guardian\nArmed (Auto-restore)\nPATH 1: HOME MODEM / ISP\nPATH 1 (PRIMARY ISP)\n\nRealtek PCIe GbE Family Controller\n\nONLINE\nIPV4 ADDRESS\n192.168.1.10\nDEFAULT GATEWAY\n192.168.1.1\nMETRIC / MTU\n10 / 1500\nMEDIA TYPE\nETHERNET\nPHYSICAL MAC\nD4-5D-64-F2-E3-1A\nSOURCE BIND IP\n192.168.1.10\nRX RATE\nMbps\n0.00\nTX RATE\nMbps\n0.00\nLATE"
+  },
+  "consoleErrors": [],
+  "screenshots": [
+    "screenshots\\01-dashboard.png",
+    "screenshots\\02-adapters.png",
+    "screenshots\\03-rules.png",
+    "screenshots\\04-gaming.png",
+    "screenshots\\05-logs.png",
+    "screenshots\\06-settings.png"
+  ]
+}

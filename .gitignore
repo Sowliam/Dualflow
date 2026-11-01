@@ -1,0 +1,61 @@
+# ==============================================================================
+# DualFlow Workspace - Git Ignore Specification
+# ==============================================================================
+
+# Compiled Go Executables & Test Binaries
+*.exe
+*.exe~
+*.dll.lib
+*.dll.exp
+*.test
+*.prof
+
+# Node & Frontend Build Outputs
+node_modules/
+desktop/node_modules/
+dist/
+dist-electron/
+dist-ssr/
+desktop/dist/
+desktop/dist-electron/
+desktop/dist-ssr/
+
+# Logs & Debug Dumps
+*.log
+logs/
+desktop/logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.dmp
+
+# Local Environment & Secrets
+.env
+.env.local
+.env.*.local
+*.env
+!*.env.example
+
+# IDE & Editor Configurations
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
+*.bak
+*.tmp
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test Coverage & Artifacts
+coverage.out
+*.out

@@ -1,0 +1,34 @@
+{
+  "name": "desktop",
+  "private": true,
+  "version": "0.1.0-alpha",
+  "main": "dist-electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build:core": "cd network-core && (where go >nul 2>nul && go build -o ../bin/dualflow-core.exe ./cmd/dualflow-core || C:\\go\\bin\\go.exe build -o ../bin/dualflow-core.exe ./cmd/dualflow-core)",
+    "test:core": "cd network-core && (where go >nul 2>nul && go test -v ./tests || C:\\go\\bin\\go.exe test -v ./tests)",
+    "build": "npm run build:core && tsc -b && vite build && node -e \"require('fs').copyFileSync('electron/preload.cjs', 'dist-electron/preload.cjs')\"",
+    "preview": "vite preview",
+    "verify": "node run-verify.cjs",
+    "start": "node run-verify.cjs"
+  },
+  "dependencies": {
+    "lucide-react": "^1.66.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "^45.2.1",
+    "oxlint": "^1.89.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~7.0.2",
+    "vite": "^8.3.5",
+    "vite-plugin-electron": "^1.2.0"
+  }
+}
