@@ -525,6 +525,11 @@ func (a *App) startBackgroundTelemetryLoop() {
 		case <-a.stopChan:
 			return
 		case <-ticker.C:
+			if adapters, err := a.discovery.Discover(); err == nil {
+				a.paths.Reconcile(adapters)
+				a.syncMultipathPaths()
+			}
+
 			p1, p2 := a.paths.GetPaths()
 			throughput := a.telemetry.SampleThroughput()
 			modemProbe := a.telemetry.ProbePath("modem", p1.SourceIp, "1.1.1.1")

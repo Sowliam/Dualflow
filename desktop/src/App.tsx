@@ -284,16 +284,54 @@ export function App() {
   }, [])
 
   // Handlers
-  const handleToggleCore = () => {
+  const handleToggleCore = async () => {
+    const nextRunning = !coreStatus.isRunning
+
+    if (nextRunning) {
+      if (window.dualflowAPI?.wintun) {
+        try {
+          await window.dualflowAPI.wintun.createAdapter()
+          await window.dualflowAPI.wintun.startSession()
+          setLogs((current) => [
+            {
+              id: `log-${Date.now()}`,
+              timestamp: new Date().toLocaleTimeString(),
+              level: 'INFO',
+              subsystem: 'TUNNEL',
+              message: 'Wintun Virtual Adapter session created and traffic interceptor armed.',
+            },
+            ...current,
+          ])
+        } catch (err: any) {
+          const errMsg = err?.message || String(err)
+          setLogs((current) => [
+            {
+              id: `log-${Date.now()}`,
+              timestamp: new Date().toLocaleTimeString(),
+              level: 'WARN',
+              subsystem: 'TUNNEL',
+              message: `Wintun adapter creation non-elevated: ${errMsg}. Please relaunch DualFlow as Administrator to enable kernel packet routing.`,
+            },
+            ...current,
+          ])
+        }
+      }
+    } else {
+      if (window.dualflowAPI?.wintun) {
+        try {
+          await window.dualflowAPI.wintun.stopSession()
+        } catch (_) {}
+      }
+    }
+
     setCoreStatus((prev) => {
-      const nextRunning = !prev.isRunning
       const newLog: LogEntry = {
         id: `log-${Date.now()}`,
         timestamp: new Date().toLocaleTimeString(),
         level: nextRunning ? 'INFO' : 'WARN',
         subsystem: 'SERVICE',
         message: nextRunning
-          ? 'DualFlow background network service started (PID 9128).'
+          ? 'DualFlow background core service activated.'
           : 'DualFlow background network service stopped. Routing tables restored.',
       }
       setLogs((current) => [newLog, ...current])
@@ -301,7 +339,6 @@ export function App() {
       return {
         ...prev,
         isRunning: nextRunning,
-        pid: nextRunning ? 9128 : null,
         isTunUp: nextRunning,
       }
     })
